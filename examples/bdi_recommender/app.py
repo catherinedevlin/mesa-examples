@@ -9,6 +9,7 @@ Displays:
 """
 
 import solara
+from matplotlib.lines import Line2D
 
 try:
     from .agents import DoctorAgent, LocationAgent, UserAgent
@@ -18,6 +19,22 @@ except ImportError:
     from model import BDIRecommenderModel
 from mesa.visualization import SolaraViz, SpaceRenderer
 from mesa.visualization.components import AgentPortrayalStyle
+
+
+def post_process(ax):
+    legend_elements = [
+        Line2D([0], [0], marker="o", color="w", markerfacecolor="red",
+               markersize=10, label="Bob (User)"),
+        Line2D([0], [0], marker="s", color="w", markerfacecolor="cyan",
+               markersize=10, label="Doctor"),
+        Line2D([0], [0], marker="s", color="w", markerfacecolor="limegreen",
+               markersize=10, label="Gym"),
+        Line2D([0], [0], marker="s", color="w", markerfacecolor="orange",
+               markersize=10, label="Nutrition Centre"),
+        Line2D([0], [0], marker="s", color="w", markerfacecolor="dodgerblue",
+               markersize=10, label="Health Clinic"),
+    ]
+    ax.legend(handles=legend_elements, loc="upper right", fontsize="small")
 
 
 def agent_portrayal(agent):
@@ -96,6 +113,7 @@ model_params = {
 model = BDIRecommenderModel(rng=42)
 
 renderer = SpaceRenderer(model, backend="matplotlib").setup_agents(agent_portrayal)
+renderer.post_process = post_process
 renderer.draw_agents()
 
 page = SolaraViz(
