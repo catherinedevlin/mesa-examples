@@ -1,21 +1,9 @@
 import contextlib
 
 try:
-    from .agents import (
-        ClinicAgent,
-        DoctorAgent,
-        GymAgent,
-        NutritionCentreAgent,
-        UserAgent,
-    )
+    from .agents import DoctorAgent, LocationAgent, UserAgent
 except ImportError:
-    from agents import (
-        ClinicAgent,
-        DoctorAgent,
-        GymAgent,
-        NutritionCentreAgent,
-        UserAgent,
-    )
+    from agents import DoctorAgent, LocationAgent, UserAgent
 from mesa import Model
 from mesa.datacollection import DataCollector
 from mesa.discrete_space import OrthogonalMooreGrid
@@ -87,10 +75,11 @@ class BDIRecommenderModel(Model):
         )
 
         # Create location agents at destination coordinates
-        # These are the locations Bob visits based on recommendations
-        self.gym = GymAgent(self, self.grid[21, 26])
-        self.nutrition_centre = NutritionCentreAgent(self, self.grid[24, 22])
-        self.clinic = ClinicAgent(self, self.grid[16, 19])
+        self.gym = LocationAgent(self, self.grid[21, 26], name="Gym")
+        self.nutrition_centre = LocationAgent(
+            self, self.grid[24, 22], name="Nutrition Centre"
+        )
+        self.clinic = LocationAgent(self, self.grid[16, 19], name="Health Clinic")
 
         # Establish relationship between user and doctor
         self.user.doctor = self.doctor

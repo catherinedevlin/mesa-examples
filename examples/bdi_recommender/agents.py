@@ -7,8 +7,7 @@ This module defines:
 
 """
 
-from __future__ import annotations
-
+from collections import deque
 from typing import TYPE_CHECKING, Any
 
 from mesa.discrete_space import Cell, FixedAgent, Grid2DMovingAgent
@@ -45,91 +44,43 @@ class BDIAgent(HasEmitters):
         self.desires: dict[str, float] = {}
         self.trust: float = 0.5
         self.intentions: list[tuple[str, tuple]] = []
-        self.incoming_queue: list[dict[str, Any]] = []
+        self.incoming_queue: deque[dict[str, Any]] = deque()
 
     @computed_property
     def goals(self) -> dict[str, float]:
-        """Compute goals from beliefs and desires.
+        """Elect goals from beliefs and desires using BDI logic.
 
         Goals are desires that are possible given current beliefs.
         A desire is blocked if there's a contradicting belief (Not-X blocks X).
         Returns the highest priority achievable desires.
         """
-        return self.elect_goals()
 
-    def elect_goals(self) -> dict[str, float]:
-        """Elect goals from beliefs and desires using BDI logic.
-
-        Implements the goal election algorithm from the NetLogo model:
-        1. Find desires with highest priority
-        2. Filter out desires blocked by conflicting beliefs
-        3. Return remaining desires as goals
-        """
-        if not self.desires:
-            return {}
-
-        # Working copy of desires to filter down
         current_desires = self.desires.copy()
 
         while current_desires:
-            # 1. Find maximum priority in the remaining set
             max_priority = max(current_desires.values())
-
-            # 2. Get all desires with this max priority
             candidates = {k: v for k, v in current_desires.items() if v == max_priority}
 
-            # 3. Filter out desires blocked by beliefs
             goals = {}
             for desire_name, priority in candidates.items():
-                # Check for blocking belief (e.g., "Not-pa" blocks "pa")
                 blocking_belief = f"Not-{desire_name}"
                 if (
                     blocking_belief in self.beliefs
                     and self.beliefs[blocking_belief] > 0
                 ):
-                    continue  # Blocked by contradicting belief
+                    continue
                 goals[desire_name] = priority
 
-            # 4. If we found valid goals at this level, return them
             if goals:
                 return goals
 
-            # 5. If all candidates were blocked, remove them and LOOP to next priority level
             for key in candidates:
                 del current_desires[key]
 
         return {}
 
-    def add_intention(self, action: str, args: tuple = ()):
-        """Add an intention to the agent's plan.
-
-        Args:
-            action: Name of the action method to execute
-            args: Arguments to pass to the action
-        """
-        self.intentions.append((action, args))
-
-    def clear_intentions(self):
-        """Clear all intentions."""
-        self.intentions.clear()
-
-    def receive_message(self, message: dict[str, Any]):
-        """Add a message to the incoming queue.
-
-        Args:
-            message: Dict with 'performative', 'sender', 'content' keys
-        """
-        self.incoming_queue.append(message)
-
     def get_message(self) -> dict[str, Any] | None:
-        """Pop the next message from the queue.
-
-        Returns:
-            The next message dict, or None if queue is empty
-        """
-        if self.incoming_queue:
-            return self.incoming_queue.pop(0)
-        return None
+        return self.incoming_queue.popleft() if self.incoming_queue else None
 
 
 class UserAgent(Grid2DMovingAgent, BDIAgent):
@@ -142,6 +93,17 @@ class UserAgent(Grid2DMovingAgent, BDIAgent):
     - Receives recommendations from doctor
     - Moves to destinations based on recommendations
     """
+
+    _DIRECTIONS = {
+        (-1, 0): "n",
+        (1, 0): "s",
+        (0, 1): "e",
+        (0, -1): "w",
+        (-1, 1): "ne",
+        (-1, -1): "nw",
+        (1, 1): "se",
+        (1, -1): "sw",
+    }
 
     def __init__(
         self,
@@ -227,7 +189,7 @@ class UserAgent(Grid2DMovingAgent, BDIAgent):
                 "receiver": sender,
                 "content": belief_update,
             }
-            sender.receive_message(response)
+            sender.incoming_queue.append(response)
         # If not trusted, silently reject (no response)
 
     def update_beliefs(
@@ -249,13 +211,12 @@ class UserAgent(Grid2DMovingAgent, BDIAgent):
         self.beliefs = new_beliefs
 
         # Recalculate goals and intentions
-        self.clear_intentions()
+        self.intentions.clear()
         self.destinations.clear()
         self.current_destination_index = 0
 
-        goals = self.goals
-        if goals:
-            self.get_recommendation(goals)
+        if self.goals:
+            self.get_recommendation(self.goals)
 
     def get_recommendation(self, goals: dict[str, float]):
         """Get health recommendation based on current goals.
@@ -273,13 +234,13 @@ class UserAgent(Grid2DMovingAgent, BDIAgent):
                 self.model.nutrition_centre.cell.coordinate,
                 self.model.clinic.cell.coordinate,
             ]
-            self.add_intention("visit_locations", ())
+            self.intentions.append(("visit_locations", ()))
         else:
             # Special diet recommendation - visit doctor
             if self.doctor and self.doctor.cell:
                 coord = self.doctor.cell.coordinate
                 self.destinations = [(coord[0], coord[1])]
-                self.add_intention("visit_doctor", ())
+                self.intentions.append(("visit_doctor", ()))
 
         self.current_destination_index = 0
 
@@ -296,46 +257,19 @@ class UserAgent(Grid2DMovingAgent, BDIAgent):
         dy = 0 if dest[1] == current[1] else (1 if dest[1] > current[1] else -1)
 
         if dx != 0 or dy != 0:
-            directions = {
-                (-1, 0): "n",
-                (1, 0): "s",
-                (0, 1): "e",
-                (0, -1): "w",
-                (-1, 1): "ne",
-                (-1, -1): "nw",
-                (1, 1): "se",
-                (1, -1): "sw",
-            }
-            if direction := directions.get((dx, dy)):
+            if direction := self._DIRECTIONS.get((dx, dy)):
                 self.move(direction)
 
         # Check if arrived at destination
         if self.cell.coordinate == dest:
             self.current_destination_index += 1
 
-    def _get_location_name(self, coordinate: tuple[int, int]) -> str:
-        """Get the human-readable name of a location at the given coordinate.
-
-        Args:
-            coordinate: (x, y) tuple
-
-        Returns:
-            Location name (e.g., "Doctor", "Gym")
-        """
-
-        cell = self.model.grid[coordinate]
-        for agent in cell.agents:
-            if hasattr(agent, "location_name"):
-                return agent.location_name
-
-        return f"Location {coordinate}"
-
     def execute_intentions(self):
         """Execute pending intentions."""
 
         if self.current_destination_index >= len(self.destinations) and self.intentions:
             # All destinations visited, clear intentions
-            self.clear_intentions()
+            self.intentions.clear()
 
 
 class DoctorAgent(FixedAgent, BDIAgent):
@@ -402,56 +336,19 @@ class DoctorAgent(FixedAgent, BDIAgent):
                 "receiver": user,
                 "content": {belief_to_share[0]: belief_to_share[1]},
             }
-            user.receive_message(proposal)
+            user.incoming_queue.append(proposal)
             self.proposal_sent = True
 
 
 class LocationAgent(FixedAgent):
-    """Base class for fixed location agents (Gym, Clinic, etc.).
+    """A fixed location that Bob can visit (Gym, Clinic, etc.)."""
 
-    These agents represent physical locations that Bob can visit.
-    They are fixed and do not move or take actions.
-
-    Attributes:
-        location_type: String identifier for the type of location
-        location_name: Human-readable name for the location
-    """
-
-    location_name: str = "Location"
-
-    def __init__(self, model: BDIRecommenderModel, cell: Cell):
-        """Initialize the location agent.
-
-        Args:
-            model: The BDIRecommenderModel instance
-            cell: Fixed cell position
-        """
+    def __init__(
+        self,
+        model: BDIRecommenderModel,
+        cell: Cell,
+        name: str = "Location",
+    ):
         super().__init__(model)
         self.cell = cell
-
-
-class GymAgent(LocationAgent):
-    """Gym - a place for physical activity.
-
-    Bob visits here for physical activity (pa) goals.
-    """
-
-    location_name = "Gym"
-
-
-class NutritionCentreAgent(LocationAgent):
-    """Nutrition Centre - a place for diet advice.
-
-    Bob visits here for weight reduction (wr) goals.
-    """
-
-    location_name = "Nutrition Centre"
-
-
-class ClinicAgent(LocationAgent):
-    """Health Clinic - a place for medical checkups.
-
-    Bob visits here for health-related consultations.
-    """
-
-    location_name = "Health Clinic"
+        self.location_name = name

@@ -1,0 +1,2 @@
+mesa[network,viz]>=4.0
+solara

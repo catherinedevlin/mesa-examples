@@ -11,22 +11,10 @@ Displays:
 import solara
 
 try:
-    from .agents import (
-        ClinicAgent,
-        DoctorAgent,
-        GymAgent,
-        NutritionCentreAgent,
-        UserAgent,
-    )
+    from .agents import DoctorAgent, LocationAgent, UserAgent
     from .model import BDIRecommenderModel
 except ImportError:
-    from agents import (
-        ClinicAgent,
-        DoctorAgent,
-        GymAgent,
-        NutritionCentreAgent,
-        UserAgent,
-    )
+    from agents import DoctorAgent, LocationAgent, UserAgent
     from model import BDIRecommenderModel
 from mesa.visualization import SolaraViz, SpaceRenderer
 from mesa.visualization.components import AgentPortrayalStyle
@@ -35,36 +23,17 @@ from mesa.visualization.components import AgentPortrayalStyle
 def agent_portrayal(agent):
     """Define how agents are displayed on the grid."""
     if isinstance(agent, UserAgent):
-        return AgentPortrayalStyle(
-            color="red",
-            size=100,
-            marker="o",
-            zorder=3,  # Bob appears on top
-        )
+        return AgentPortrayalStyle(color="red", size=100, marker="o", zorder=3)
     elif isinstance(agent, DoctorAgent):
+        return AgentPortrayalStyle(color="cyan", size=120, marker="s", zorder=2)
+    elif isinstance(agent, LocationAgent):
+        colors = {
+            "Gym": "limegreen",
+            "Nutrition Centre": "orange",
+            "Health Clinic": "dodgerblue",
+        }
         return AgentPortrayalStyle(
-            color="cyan",
-            size=120,
-            marker="s",
-            zorder=2,  # Doctor below Bob
-        )
-    elif isinstance(agent, GymAgent):
-        return AgentPortrayalStyle(
-            color="limegreen",
-            size=150,
-            marker="s",
-            zorder=1,  # Locations at bottom
-        )
-    elif isinstance(agent, NutritionCentreAgent):
-        return AgentPortrayalStyle(
-            color="orange",
-            size=150,
-            marker="s",
-            zorder=1,
-        )
-    elif isinstance(agent, ClinicAgent):
-        return AgentPortrayalStyle(
-            color="dodgerblue",
+            color=colors.get(agent.location_name, "gray"),
             size=150,
             marker="s",
             zorder=1,
