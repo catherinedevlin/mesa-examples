@@ -1,2 +1,2 @@
-mesa
+mesa[network]>=3.5
 numpy
